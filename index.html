@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="Интерактивный симулятор системы массового обслуживания M/M/n/m для курсового проекта по МИПиС">
+<title>Симулятор СМО M/M/n</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+html{color-scheme:light}
+body{margin:0}
+
+/* Layout: пульт управления слева, «зал обслуживания» справа, ниже — сверка теории и имитации, график и задания */
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --surface2:#f5f7f9; --ink:#17202b; --muted:#5b6876; --line:#d5dce3;
+  --accent:#1f5f8b; --accent-soft:#dbe8f2;
+  --wait:#c97f00; --ok:#2e7d4f; --bad:#c2412d; --ok-soft:#e1f1e7; --wait-soft:#fbefd5; --bad-soft:#f8e1dc;
+  --f-display:"Unbounded","Golos Text",system-ui,sans-serif;
+  --f-body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#11161c; --surface:#18202a; --surface2:#1e2833; --ink:#e6ecf2; --muted:#93a1b0; --line:#2c3845;
+  --accent:#6aa9d6; --accent-soft:#1d3346;
+  --wait:#e5a634; --ok:#5cbf85; --bad:#ef7a64; --ok-soft:#173025; --wait-soft:#3a2c12; --bad-soft:#3d1f1a; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11161c; --surface:#18202a; --surface2:#1e2833; --ink:#e6ecf2; --muted:#93a1b0; --line:#2c3845;
+  --accent:#6aa9d6; --accent-soft:#1d3346;
+  --wait:#e5a634; --ok:#5cbf85; --bad:#ef7a64; --ok-soft:#173025; --wait-soft:#3a2c12; --bad-soft:#3d1f1a; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:22px}
+header{display:flex;flex-wrap:wrap;gap:16px 28px;align-items:flex-end;justify-content:space-between}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3.4vw,32px);line-height:1.15;margin:0;text-wrap:balance}
+.lead{margin:8px 0 0;color:var(--muted);max-width:62ch}
+.board{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.kendall{font-family:var(--f-mono);font-weight:600;font-size:26px;letter-spacing:.02em;padding:6px 14px;border-radius:8px;background:var(--ink);color:var(--bg)}
+.pill{font-size:13px;font-weight:600;padding:5px 11px;border-radius:999px}
+.pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.warn{background:var(--wait-soft);color:var(--wait)} .pill.bad{background:var(--bad-soft);color:var(--bad)}
+.main{display:grid;grid-template-columns:300px minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:860px){.main{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px}
+.controls{display:flex;flex-direction:column;gap:16px}
+.h3{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0;font-weight:600}
+.presets{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+button{font:inherit;cursor:pointer}
+.chip{background:var(--surface2);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:7px 8px;font-size:13px;text-align:left}
+.chip:hover{border-color:var(--accent)} .chip.on{background:var(--accent-soft);border-color:var(--accent)}
+.ctl{display:flex;flex-direction:column;gap:4px}
+.ctl .row{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.ctl label{font-weight:500;font-size:14px}
+.ctl small{color:var(--muted);font-size:12px}
+.val{font-family:var(--f-mono);font-weight:600;font-variant-numeric:tabular-nums}
+input[type=range]{width:100%;accent-color:var(--accent)}
+input[type=number]{font:inherit;font-family:var(--f-mono);width:100px;padding:5px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface2);color:var(--ink)}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.derived{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);padding-top:12px}
+.derived b{color:var(--ink);font-family:var(--f-mono);font-weight:600}
+.stage{display:flex;flex-direction:column;gap:12px;padding:14px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:8px 14px;font-weight:600}
+:root[data-theme="dark"] .btn{color:#0d1620}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .btn{color:#0d1620}}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.clock{margin-left:auto;font-family:var(--f-mono);font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}
+canvas{width:100%;display:block;border-radius:8px;background:var(--surface2)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.grid2{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:860px){.grid2{grid-template-columns:1fr}}
+h2{font-family:var(--f-display);font-weight:500;font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 12px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+thead th{font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.03em}
+td.num{font-family:var(--f-mono)}
+#ntab tbody tr{cursor:pointer}
+#ntab tbody tr:hover{background:var(--surface2)}
+#ntab tbody tr.cur{background:var(--accent-soft)}
+#ntab td.uns{color:var(--bad)}
+.chartbox{overflow-x:auto}
+svg text{font-family:var(--f-body)}
+.formulas{font-family:var(--f-mono);font-size:13.5px;background:var(--surface2);border-radius:8px;padding:12px 14px;line-height:1.9;overflow-x:auto}
+.formulas span{color:var(--muted)}
+.expl{font-size:13.5px;color:var(--muted);margin:10px 0 0}
+ol.tasks{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:10px}
+ol.tasks li{padding-left:4px}
+footer{color:var(--muted);font-size:12.5px;text-align:center}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <p class="eyebrow">МИПиС · курсовой проект · к разделу 4.3.6</p>
+      <h1>Симулятор системы массового обслуживания</h1>
+      <p class="lead">Меняйте интенсивность потока, скорость обслуживания и число каналов. Слева идёт живая имитация, ниже она сверяется с аналитической моделью.</p>
+    </div>
+    <div class="board"><span class="kendall" id="kendall">M/M/3</span><span class="pill ok" id="status">Спокойно</span></div>
+  </header>
+
+  <div class="main">
+    <aside class="panel controls">
+      <div>
+        <p class="h3" style="margin-bottom:8px">Примеры из тем</p>
+        <div class="presets" id="presets">
+          <button class="chip" data-p="bank">Банк (тема 1)</button>
+          <button class="chip" data-p="shop">Касса (тема 2)</button>
+          <button class="chip" data-p="call">Колл-центр (тема 3)</button>
+          <button class="chip" data-p="azs">АЗС (тема 4)</button>
+        </div>
+      </div>
+      <div class="ctl"><div class="row"><label for="lam">λ — поток заявок</label><span class="val" id="lamV"></span></div>
+        <input type="range" id="lam" min="1" max="200" step="1"><small>заявок в час</small></div>
+      <div class="ctl"><div class="row"><label for="mu">μ — обслуживание</label><span class="val" id="muV"></span></div>
+        <input type="range" id="mu" min="1" max="60" step="1"><small>заявок в час одним каналом</small></div>
+      <div class="ctl"><div class="row"><label for="n">n — число каналов</label><span class="val" id="nV"></span></div>
+        <input type="range" id="n" min="1" max="10" step="1"><small>операторы, кассы, колонки</small></div>
+      <div class="ctl"><div class="row"><label for="m">m — мест в очереди</label><span class="val" id="mV"></span></div>
+        <input type="range" id="m" min="0" max="21" step="1"><small>крайнее правое положение — без ограничения</small></div>
+      <div class="ctl"><div class="row"><label for="speed">Скорость показа</label><span class="val" id="speedV"></span></div>
+        <input type="range" id="speed" min="0" max="6" step="1"></div>
+      <div class="ctl"><div class="row"><label for="seed">seed генератора</label><input type="number" id="seed" min="1" max="99999"></div>
+        <small>одинаковый seed даёт одинаковый поток заявок</small></div>
+      <div class="derived" id="derived"></div>
+    </aside>
+
+    <section class="panel stage">
+      <div class="toolbar">
+        <button class="btn" id="play">Пауза</button>
+        <button class="btn ghost" id="reset">Начать заново</button>
+        <span class="clock" id="clock"></span>
+      </div>
+      <canvas id="cv" height="260" aria-label="Анимация очереди и каналов обслуживания"></canvas>
+      <div class="legend">
+        <span><i style="background:var(--wait)"></i>ожидает в очереди</span>
+        <span><i style="background:var(--accent)"></i>обслуживается</span>
+        <span><i style="background:var(--ok)"></i>обслужена</span>
+        <span><i style="background:var(--bad)"></i>отказ (очередь заполнена)</span>
+      </div>
+    </section>
+  </div>
+
+  <div class="grid2">
+    <section class="panel">
+      <h2>Теория и имитация</h2>
+      <p class="sub">Чем дольше идёт прогон, тем ближе столбцы. Короткий прогон даёт случайный разброс.</p>
+      <div class="tbl"><table>
+        <thead><tr><th>Показатель</th><th>Теория</th><th>Имитация</th></tr></thead>
+        <tbody id="cmp"></tbody>
+      </table></div>
+    </section>
+    <section class="panel">
+      <h2>Сколько каналов открыть</h2>
+      <p class="sub">Тот же поток при разном n. Нажмите на строку, чтобы выбрать вариант.</p>
+      <div class="tbl"><table id="ntab">
+        <thead><tr><th>n</th><th>ρ</th><th>P ожид.</th><th>W<sub>q</sub>, мин</th><th>P отказа</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <h2>Почему при ρ → 1 очередь «взрывается»</h2>
+    <p class="sub">Среднее время ожидания W<sub>q</sub> при текущих μ, n и m в зависимости от загрузки ρ. Точка — ваш вариант.</p>
+    <div class="chartbox"><svg id="chart" viewBox="0 0 720 300" width="100%" role="img" aria-label="График зависимости времени ожидания от загрузки"></svg></div>
+  </section>
+
+  <div class="grid2">
+    <section class="panel">
+      <h2>Используемые соотношения</h2>
+      <div class="formulas">
+        a = λ / μ &nbsp;&nbsp;<span>(1) нагрузка, Эрл</span><br>
+        ρ = a / n &nbsp;&nbsp;<span>(2) загрузка канала</span><br>
+        P₀ = [ Σ<sub>k=0..n</sub> aᵏ/k! + aⁿ/n! · Σ<sub>s=1..m</sub> ρˢ ]⁻¹ &nbsp;<span>(3)</span><br>
+        P<sub>отк</sub> = aⁿ/n! · ρᵐ · P₀ &nbsp;&nbsp;<span>(4)</span><br>
+        L<sub>q</sub> = aⁿ/n! · P₀ · Σ<sub>s=1..m</sub> s·ρˢ &nbsp;&nbsp;<span>(5)</span><br>
+        W<sub>q</sub> = L<sub>q</sub> / (λ·(1 − P<sub>отк</sub>)), &nbsp;W = W<sub>q</sub> + 1/μ &nbsp;<span>(6)</span>
+      </div>
+      <p class="expl">λ — интенсивность входящего потока; μ — интенсивность обслуживания одним каналом; n — число каналов; m — число мест в очереди; P₀ — вероятность того, что система пуста; L<sub>q</sub> — средняя длина очереди; W<sub>q</sub> и W — среднее время ожидания и пребывания в системе. При m = ∞ сумма в (3) сходится только при ρ &lt; 1, а P<sub>отк</sub> = 0.</p>
+    </section>
+    <section class="panel">
+      <h2>Задания для самопроверки</h2>
+      <ol class="tasks">
+        <li>Выберите «Банк» и плавно увеличивайте λ. При каком ρ среднее ожидание превышает 10 минут? Во сколько раз оно растёт между ρ = 0,8 и ρ = 0,95?</li>
+        <li>Для «Кассы» найдите наименьшее n, при котором W<sub>q</sub> меньше 1 минуты. Какой будет загрузка кассиров? Оправдан ли такой вариант?</li>
+        <li>Для «АЗС» сравните m = 1 и m = 6 по доле отказов и загрузке колонок. Что выгоднее: расширить площадку или поставить ещё одну колонку?</li>
+        <li>Остановите имитацию через 30 модельных минут и сравните с теорией. Повторите с другим seed. Почему для курсового проекта нужен длинный прогон и фиксированный seed?</li>
+      </ol>
+    </section>
+  </div>
+
+  <footer>Методические указания к курсовому проекту по дисциплине «Моделирование информационных процессов и систем». Филиал НИТУ «МИСИС» в г. Алмалык, 2026.</footer>
+</div>
+
+<script>
+(function(){
+const $=id=>document.getElementById(id);
+const SPEEDS=[0.5,1,2,5,10,30,60];
+const PRESETS={
+  bank:{lam:36,mu:14,n:3,m:21},
+  shop:{lam:90,mu:25,n:4,m:21},
+  call:{lam:100,mu:12,n:10,m:21},
+  azs:{lam:40,mu:15,n:3,m:4}
+};
+const P={lam:36,mu:14,n:3,m:Infinity,speed:2,seed:2026};
+let preset='bank';
+
+const fmt=(x,d=2)=>Number.isFinite(x)?x.toLocaleString('ru-RU',{minimumFractionDigits:d,maximumFractionDigits:d}):'∞';
+const pct=x=>Number.isFinite(x)?(x*100).toLocaleString('ru-RU',{maximumFractionDigits:1,minimumFractionDigits:1})+' %':'—';
+
+/* ---------- аналитическая модель M/M/n/m ---------- */
+function theory(lamH,muH,n,m){
+  const a=lamH/muH, rho=a/n;
+  let s=0,t=1;
+  for(let k=0;k<=n;k++){ if(k>0) t*=a/k; s+=t; }
+  const an=t;
+  let p0,Pw,Lq,Prej;
+  if(m===Infinity){
+    if(rho>=1) return {unstable:true,a,rho};
+    p0=1/(s+an*rho/(1-rho));
+    Pw=an*p0/(1-rho); Lq=Pw*rho/(1-rho); Prej=0;
+  }else{
+    let geo=0,sl=0,r=1,geo0=0;
+    for(let k=1;k<=m;k++){ r*=rho; geo+=r; sl+=k*r; }
+    r=1; for(let k=0;k<m;k++){ geo0+=r; r*=rho; }
+    p0=1/(s+an*geo);
+    Prej=an*Math.pow(rho,m)*p0;
+    Pw=an*p0*geo0;
+    Lq=an*p0*sl;
+  }
+  const lamEff=lamH*(1-Prej);
+  const Wq=lamEff>0?Lq/lamEff*60:0;
+  return {unstable:false,a,rho,p0,Pw:Prej<1?Pw/(1-Prej):0,Lq,Prej,Wq,W:Wq+60/muH,util:a*(1-Prej)/n};
+}
+
+/* ---------- имитационная модель ---------- */
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;}}
+let S, rng;
+const expo=rate=>-Math.log(1-rng())/rate;
+function reset(){
+  rng=mulberry32(P.seed);
+  S={t:0,queue:[],ch:new Array(P.n).fill(null),tokens:[],id:0,arrivals:0,accepted:0,served:0,rejected:0,
+     started:0,waited:0,sumWait:0,maxWait:0,sumSoj:0,areaQ:0,areaBusy:0,maxQ:0};
+  S.nextArr=expo(P.lam/60);
+  updateSim(true);
+}
+const busy=()=>S.ch.reduce((k,c)=>k+(c?1:0),0);
+function integrate(t1){const d=t1-S.t; S.areaQ+=S.queue.length*d; S.areaBusy+=busy()*d; S.t=t1;}
+function startService(i,c){
+  c.st='s'; c.ch=i; c.start=S.t; c.end=S.t+expo(P.mu/60);
+  const w=S.t-c.arr; S.started++; S.sumWait+=w; if(w>1e-9) S.waited++; if(w>S.maxWait) S.maxWait=w;
+  S.ch[i]=c;
+}
+function arrive(){
+  S.arrivals++; S.nextArr=S.t+expo(P.lam/60);
+  const c={id:++S.id,arr:S.t,x:-14,y:geo.qy,a:1,st:'new'};
+  S.tokens.push(c);
+  const free=S.ch.indexOf(null);
+  if(free>=0){S.accepted++; startService(free,c);}
+  else if(S.queue.length<P.m){S.accepted++; c.st='q'; S.queue.push(c); if(S.queue.length>S.maxQ) S.maxQ=S.queue.length;}
+  else {c.st='rej'; S.rejected++;}
+}
+function depart(i){
+  const c=S.ch[i]; S.ch[i]=null; c.st='out'; S.served++; S.sumSoj+=S.t-c.arr;
+  if(S.queue.length) startService(i,S.queue.shift());
+}
+function advance(dt){
+  const target=S.t+dt; let guard=0;
+  while(guard++<20000){
+    let ev=S.nextArr,ci=-1;
+    for(let i=0;i<S.ch.length;i++){const c=S.ch[i]; if(c&&c.end<ev){ev=c.end;ci=i;}}
+    if(ev>target) break;
+    integrate(ev);
+    if(ci<0) arrive(); else depart(ci);
+  }
+  integrate(target);
+}
+
+/* ---------- отрисовка ---------- */
+const cv=$('cv'), ctx=cv.getContext('2d');
+const geo={W:600,H:260,qy:130,chX:440,chW:150,top:20,boxH:30,gap:8};
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+let colors={};
+function readColors(){const cs=getComputedStyle(document.documentElement);['ink','muted','line','surface','accent','accent-soft','wait','ok','bad'].forEach(k=>colors[k]=cs.getPropertyValue('--'+k).trim());}
+function fitCanvas(){
+  const W=cv.clientWidth||600;
+  const n=P.n, boxH=W<480?26:30, gap=W<480?6:8;
+  const H=Math.max(230,n*(boxH+gap)-gap+56);
+  const dpr=window.devicePixelRatio||1;
+  if(cv.width!==Math.round(W*dpr)||cv.height!==Math.round(H*dpr)){cv.width=Math.round(W*dpr);cv.height=Math.round(H*dpr);cv.style.height=H+'px';}
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  const chW=Math.min(160,Math.max(110,W*0.3));
+  Object.assign(geo,{W,H,boxH,gap,chW,chX:W-chW-12,top:(H-(n*(boxH+gap)-gap))/2+8,qy:H/2+8});
+}
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+const boxY=i=>geo.top+i*(geo.boxH+geo.gap);
+const slotX=i=>geo.chX-34-i*20;
+function layout(k){
+  const vis=Math.max(1,Math.floor((geo.chX-34-34)/20)+1);
+  S.queue.forEach((c,i)=>{c.tx=i<vis?slotX(i):slotX(vis-1); c.ty=geo.qy; c.hide=i>=vis;});
+  S.ch.forEach((c,i)=>{if(c){c.tx=geo.chX+15; c.ty=boxY(i)+geo.boxH/2; c.hide=false;}});
+  for(const c of S.tokens){
+    if(c.st==='out'){c.tx=geo.W+20; c.a-=0.035*(k>0.99?3:1);}
+    if(c.st==='rej'){c.tx=Math.max(c.x,60); c.ty=geo.H+20; c.a-=0.03;}
+    if(c.st==='new'){c.tx=c.x; c.ty=c.y;}
+    c.x+=(c.tx-c.x)*k; c.y+=(c.ty-c.y)*k;
+  }
+  S.tokens=S.tokens.filter(c=>c.a>0);
+  return vis;
+}
+const talon=id=>'А-'+String(id%1000).padStart(3,'0');
+function draw(vis){
+  const {W,H,qy,chX,chW,boxH}=geo;
+  ctx.clearRect(0,0,W,H);
+  ctx.font='600 11px "Golos Text",system-ui,sans-serif'; ctx.fillStyle=colors.muted; ctx.textBaseline='alphabetic';
+  ctx.fillText('ВХОД',12,20); ctx.fillText('ОЧЕРЕДЬ  '+S.queue.length+(P.m===Infinity?'':' / '+P.m),60,20);
+  ctx.fillText('КАНАЛЫ',chX,Math.max(14,geo.top-8));
+  // рельс очереди
+  ctx.strokeStyle=colors.line; ctx.lineWidth=1.5; ctx.setLineDash([4,5]);
+  ctx.beginPath(); ctx.moveTo(10,qy); ctx.lineTo(chX-22,qy); ctx.stroke(); ctx.setLineDash([]);
+  if(P.m!==Infinity){ // граница накопителя
+    const xEnd=slotX(Math.max(0,P.m-1))-12;
+    ctx.strokeStyle=colors.bad; ctx.globalAlpha=.55; ctx.beginPath(); ctx.moveTo(xEnd,qy-16); ctx.lineTo(xEnd,qy+16); ctx.stroke(); ctx.globalAlpha=1;
+  }
+  // каналы
+  for(let i=0;i<P.n;i++){
+    const y=boxY(i), c=S.ch[i];
+    ctx.strokeStyle=colors.line; ctx.globalAlpha=.8; ctx.beginPath(); ctx.moveTo(chX-22,qy); ctx.lineTo(chX,y+boxH/2); ctx.stroke(); ctx.globalAlpha=1;
+    rr(chX,y,chW,boxH,6); ctx.fillStyle=colors.surface; ctx.fill(); ctx.strokeStyle=c?colors.accent:colors.line; ctx.lineWidth=1.2; ctx.stroke();
+    if(c){
+      const p=Math.min(1,(S.t-c.start)/(c.end-c.start));
+      ctx.save(); rr(chX,y,chW,boxH,6); ctx.clip(); ctx.fillStyle=colors['accent-soft']; ctx.fillRect(chX,y,chW*p,boxH); ctx.restore();
+      ctx.fillStyle=colors.ink; ctx.font='600 12px "JetBrains Mono",monospace'; ctx.fillText(talon(c.id),chX+30,y+boxH/2+4);
+    }else{
+      ctx.fillStyle=colors.muted; ctx.font='12px "Golos Text",system-ui,sans-serif'; ctx.fillText('свободен',chX+30,y+boxH/2+4);
+    }
+    ctx.fillStyle=colors.muted; ctx.font='11px "JetBrains Mono",monospace'; ctx.textAlign='right'; ctx.fillText(String(i+1),chX+chW-8,y+boxH/2+4); ctx.textAlign='left';
+  }
+  // заявки
+  for(const c of S.tokens){
+    if(c.hide) continue;
+    const col=c.st==='q'||c.st==='new'?colors.wait:c.st==='s'?colors.accent:c.st==='out'?colors.ok:colors.bad;
+    ctx.globalAlpha=Math.max(0,Math.min(1,c.a)); ctx.fillStyle=col;
+    ctx.beginPath(); ctx.arc(c.x,c.y,7.5,0,Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha=1;
+  if(S.queue.length>vis){ctx.fillStyle=colors.wait; ctx.font='600 13px "JetBrains Mono",monospace'; ctx.fillText('+'+(S.queue.length-vis),12,qy-14);}
+}
+
+/* ---------- таблицы и график ---------- */
+const ROWS=[
+  ['rho','Загрузка каналов'],['lq','Средняя длина очереди L<sub>q</sub>'],['wq','Среднее ожидание W<sub>q</sub>, мин'],
+  ['w','Время в системе W, мин'],['pw','Доля ожидавших'],['prej','Доля отказов'],
+  ['maxw','Макс. ожидание, мин'],['maxq','Макс. длина очереди'],['srv','Обслужено заявок']
+];
+$('cmp').innerHTML=ROWS.map(([k,l])=>`<tr><td>${l}</td><td class="num" id="t_${k}"></td><td class="num" id="s_${k}"></td></tr>`).join('');
+let TH;
+function renderTheory(){
+  TH=theory(P.lam,P.mu,P.n,P.m);
+  const u=TH.unstable, set=(k,v)=>$('t_'+k).textContent=v;
+  set('rho',u?'≥ 100 %':pct(TH.util)); set('lq',u?'∞':fmt(TH.Lq)); set('wq',u?'∞':fmt(TH.Wq)); set('w',u?'∞':fmt(TH.W));
+  set('pw',u?'100 %':pct(TH.Pw)); set('prej',pct(u?0:TH.Prej)); set('maxw','—'); set('maxq','—'); set('srv','—');
+  $('kendall').textContent='M/M/'+P.n+(P.m===Infinity?'':'/'+P.m);
+  const st=$('status'), r=TH.rho;
+  if(u){st.className='pill bad'; st.textContent='Неустойчива: ρ ≥ 1';}
+  else if(r>=0.9){st.className='pill bad'; st.textContent='Критично';}
+  else if(r>=0.7){st.className='pill warn'; st.textContent='Напряжённо';}
+  else {st.className='pill ok'; st.textContent='Спокойно';}
+  $('derived').innerHTML=`Нагрузка a = λ/μ = <b>${fmt(TH.a)}</b> Эрл<br>Загрузка ρ = a/n = <b>${fmt(TH.rho)}</b>`+
+    (u?`<br><span style="color:var(--bad)">Каналы не успевают: очередь растёт без предела.</span>`:`<br>Вероятность простоя P₀ = <b>${fmt(TH.p0,3)}</b>`);
+  renderNTab(); renderChart();
+}
+function renderNTab(){
+  let h='';
+  for(let k=1;k<=10;k++){
+    const t=theory(P.lam,P.mu,k,P.m);
+    h+=`<tr data-n="${k}" class="${k===P.n?'cur':''}"><td>${k}</td>`+(t.unstable
+      ?`<td class="num uns">${fmt(t.rho)}</td><td class="num uns" colspan="3" style="text-align:right">неустойчива</td>`
+      :`<td class="num">${fmt(t.rho)}</td><td class="num">${pct(t.Pw)}</td><td class="num">${fmt(t.Wq)}</td><td class="num">${pct(t.Prej)}</td>`)+'</tr>';
+  }
+  $('ntab').tBodies[0].innerHTML=h;
+}
+$('ntab').addEventListener('click',e=>{const tr=e.target.closest('tr[data-n]'); if(!tr) return; P.n=+tr.dataset.n; $('n').value=P.n; changed();});
+
+function niceStep(max,count){const raw=max/count, p=Math.pow(10,Math.floor(Math.log10(raw))), f=raw/p; return (f<=1?1:f<=2?2:f<=5?5:10)*p;}
+function renderChart(){
+  const {mu,n,m}=P, inf=m===Infinity;
+  const xMax=inf?1.05:1.6, rEnd=inf?0.985:1.6;
+  const pts=[]; for(let i=1;i<=160;i++){const r=rEnd*i/160; const t=theory(r*n*mu,mu,n,m); if(!t.unstable) pts.push([r,t.Wq]);}
+  const cur=theory(P.lam,mu,n,m);
+  let yTop=inf?Math.max(theory(0.9*n*mu,mu,n,m).Wq*1.2,cur.unstable?0:cur.Wq*1.15):Math.max(...pts.map(p=>p[1]))*1.12;
+  yTop=Math.max(yTop,1);
+  const step=niceStep(yTop,4); yTop=Math.ceil(yTop/step)*step;
+  const L=56,R=16,T=16,B=44,Wd=720,Hd=300,pw=Wd-L-R,ph=Hd-T-B;
+  const X=x=>L+x/xMax*pw, Y=y=>T+ph-Math.min(y,yTop*1.5)/yTop*ph;
+  let s=`<defs><clipPath id="clp"><rect x="${L}" y="${T}" width="${pw}" height="${ph}"/></clipPath></defs>`;
+  for(let y=0;y<=yTop+1e-9;y+=step){s+=`<line x1="${L}" x2="${Wd-R}" y1="${Y(y)}" y2="${Y(y)}" stroke="var(--line)"/><text x="${L-8}" y="${Y(y)+4}" text-anchor="end" font-size="12" fill="var(--muted)">${fmt(y,step<1?1:0)}</text>`;}
+  for(let x=0;x<=xMax+1e-9;x+=0.2){s+=`<text x="${X(x)}" y="${T+ph+18}" text-anchor="middle" font-size="12" fill="var(--muted)">${fmt(x,1)}</text>`;}
+  s+=`<line x1="${X(1)}" x2="${X(1)}" y1="${T}" y2="${T+ph}" stroke="var(--bad)" stroke-dasharray="4 4"/><text x="${X(1)+6}" y="${T+14}" font-size="12" fill="var(--bad)">ρ = 1</text>`;
+  const line=pts.map(p=>`${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join(' ');
+  s+=`<g clip-path="url(#clp)"><polygon points="${X(pts[0][0])},${T+ph} ${line} ${X(pts[pts.length-1][0])},${T+ph}" fill="var(--accent)" opacity=".12"/><polyline points="${line}" fill="none" stroke="var(--accent)" stroke-width="2.5" stroke-linejoin="round"/></g>`;
+  if(!cur.unstable && cur.rho<=xMax){
+    const cx=X(cur.rho), cy=Y(cur.Wq), clipped=cur.Wq>yTop;
+    s+=`<circle cx="${cx}" cy="${clipped?T+6:cy}" r="6" fill="var(--wait)" stroke="var(--surface)" stroke-width="2"/>`;
+    const lbl=`ρ = ${fmt(cur.rho)}, Wq = ${fmt(cur.Wq,1)} мин`, right=cx>Wd-220;
+    s+=`<text x="${cx+(right?-10:10)}" y="${(clipped?T+6:cy)-10}" text-anchor="${right?'end':'start'}" font-size="12.5" font-weight="600" fill="var(--ink)">${lbl}</text>`;
+  }else{
+    s+=`<text x="${X(1)+6}" y="${T+32}" font-size="12.5" font-weight="600" fill="var(--bad)">ваш вариант: ρ = ${fmt(cur.rho)}, ожидание растёт без предела</text>`;
+  }
+  s+=`<line x1="${L}" x2="${Wd-R}" y1="${T+ph}" y2="${T+ph}" stroke="var(--muted)"/>`;
+  s+=`<text x="${L+pw/2}" y="${Hd-6}" text-anchor="middle" font-size="12.5" fill="var(--muted)">загрузка ρ = λ / (n·μ)</text>`;
+  s+=`<text x="14" y="${T+ph/2}" transform="rotate(-90 14 ${T+ph/2})" text-anchor="middle" font-size="12.5" fill="var(--muted)">Wq, мин</text>`;
+  $('chart').innerHTML=s;
+}
+function updateSim(force){
+  const t=S.t, set=(k,v)=>$('s_'+k).textContent=v;
+  if(t<=0||force&&t<=0){ROWS.forEach(([k])=>set(k,'—'));}
+  else{
+    set('rho',pct(S.areaBusy/(t*P.n))); set('lq',fmt(S.areaQ/t)); set('wq',S.started?fmt(S.sumWait/S.started):'—');
+    set('w',S.served?fmt(S.sumSoj/S.served):'—'); set('pw',S.started?pct(S.waited/S.started):'—');
+    set('prej',S.arrivals?pct(S.rejected/S.arrivals):'—'); set('maxw',fmt(S.maxWait,1)); set('maxq',String(S.maxQ)); set('srv',String(S.served));
+  }
+  const h=Math.floor(t/60), mm=Math.floor(t%60);
+  $('clock').textContent=`модельное время ${h} ч ${String(mm).padStart(2,'0')} мин · пришло ${S.arrivals}`;
+}
+
+/* ---------- управление ---------- */
+function syncLabels(){
+  $('lamV').textContent=P.lam+' /ч'; $('muV').textContent=P.mu+' /ч'; $('nV').textContent=P.n;
+  $('mV').textContent=P.m===Infinity?'∞':P.m; $('speedV').textContent='×'+(P.speed*60).toLocaleString('ru-RU');
+  $('speedV').title='модельных минут за секунду: '+P.speed;
+  document.querySelectorAll('#presets .chip').forEach(b=>b.classList.toggle('on',b.dataset.p===preset));
+}
+function readInputs(){
+  P.lam=+$('lam').value; P.mu=+$('mu').value; P.n=+$('n').value;
+  const mv=+$('m').value; P.m=mv>=21?Infinity:mv;
+  P.speed=SPEEDS[+$('speed').value]; const sd=parseInt($('seed').value,10); P.seed=Number.isFinite(sd)&&sd>0?sd:1;
+}
+function writeInputs(){
+  $('lam').value=P.lam; $('mu').value=P.mu; $('n').value=P.n; $('m').value=P.m===Infinity?21:P.m;
+  $('speed').value=SPEEDS.indexOf(P.speed); $('seed').value=P.seed;
+}
+function changed(){syncLabels(); fitCanvas(); renderTheory(); reset();}
+['lam','mu','n','m','seed'].forEach(id=>$(id).addEventListener('input',()=>{readInputs(); preset=null; changed();}));
+$('speed').addEventListener('input',()=>{readInputs(); syncLabels();});
+$('presets').addEventListener('click',e=>{const b=e.target.closest('[data-p]'); if(!b) return; preset=b.dataset.p; const p=PRESETS[preset];
+  P.lam=p.lam; P.mu=p.mu; P.n=p.n; P.m=p.m>=21?Infinity:p.m; writeInputs(); changed();});
+let running=true;
+$('play').addEventListener('click',()=>{running=!running; $('play').textContent=running?'Пауза':'Продолжить';});
+$('reset').addEventListener('click',()=>{reset();});
+
+const mq=matchMedia('(prefers-color-scheme: dark)'); (mq.addEventListener?mq.addEventListener('change',()=>{readColors();renderChart();}):0);
+new MutationObserver(()=>readColors()).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+window.addEventListener('resize',fitCanvas);
+
+writeInputs(); readColors(); syncLabels(); fitCanvas(); renderTheory(); reset();
+let last=performance.now(), lastUi=0;
+function frame(now){
+  const dt=Math.min(0.1,(now-last)/1000); last=now;
+  if(running) advance(dt*P.speed);
+  fitCanvas();
+  const vis=layout(reduce?1:1-Math.exp(-dt*12));
+  draw(vis);
+  if(now-lastUi>200){updateSim(); lastUi=now;}
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+
+</body>
+</html>
