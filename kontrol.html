@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Симулятор системы контроля</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Имитационная модель системы контроля для лабораторной работы 3 по МИПиС: 1–4 поста, 20 вариантов, результаты совпадают с Python при том же seed">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700&family=Golos+Text:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: пульт с вариантом слева, «линия контроля» справа, ниже таблица для отчёта, график и код Python. Палитра та же, что у симулятора СМО */
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --surface2:#f5f7f9; --ink:#17202b; --muted:#5b6876; --line:#d5dce3;
+  --accent:#1f5f8b; --accent-soft:#dbe8f2;
+  --wait:#c97f00; --ok:#2e7d4f; --bad:#c2412d; --ok-soft:#e1f1e7; --wait-soft:#fbefd5; --bad-soft:#f8e1dc;
+  --code-bg:#f5f7f9; --btn-ink:#ffffff;
+  --f-display:"Unbounded","Golos Text",system-ui,sans-serif;
+  --f-body:"Golos Text",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"JetBrains Mono",ui-monospace,"Cascadia Mono",Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#11161c; --surface:#18202a; --surface2:#1e2833; --ink:#e6ecf2; --muted:#93a1b0; --line:#2c3845;
+  --accent:#6aa9d6; --accent-soft:#1d3346;
+  --wait:#e5a634; --ok:#5cbf85; --bad:#ef7a64; --ok-soft:#173025; --wait-soft:#3a2c12; --bad-soft:#3d1f1a;
+  --code-bg:#141b23; --btn-ink:#0d1620; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#11161c; --surface:#18202a; --surface2:#1e2833; --ink:#e6ecf2; --muted:#93a1b0; --line:#2c3845;
+  --accent:#6aa9d6; --accent-soft:#1d3346;
+  --wait:#e5a634; --ok:#5cbf85; --bad:#ef7a64; --ok-soft:#173025; --wait-soft:#3a2c12; --bad-soft:#3d1f1a;
+  --code-bg:#141b23; --btn-ink:#0d1620; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding-block:28px 48px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:22px}
+header{display:flex;flex-wrap:wrap;gap:16px 28px;align-items:flex-end;justify-content:space-between}
+.eyebrow{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 6px}
+h1{font-family:var(--f-display);font-weight:700;font-size:clamp(22px,3.4vw,32px);line-height:1.15;margin:0;text-wrap:balance}
+.lead{margin:8px 0 0;color:var(--muted);max-width:64ch}
+.board{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.tag{font-family:var(--f-mono);font-weight:600;font-size:22px;padding:6px 14px;border-radius:8px;background:var(--ink);color:var(--bg)}
+.pill{font-size:13px;font-weight:600;padding:5px 11px;border-radius:999px}
+.pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.warn{background:var(--wait-soft);color:var(--wait)} .pill.bad{background:var(--bad-soft);color:var(--bad)}
+.main{display:grid;grid-template-columns:300px minmax(0,1fr);gap:18px;align-items:start}
+@media (max-width:860px){.main{grid-template-columns:1fr}}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:18px;min-width:0}
+.controls{display:flex;flex-direction:column;gap:14px}
+.h3{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0;font-weight:600}
+button{font:inherit;cursor:pointer}
+select,input[type=number]{font:inherit;font-family:var(--f-mono);padding:6px 8px;border-radius:6px;border:1px solid var(--line);background:var(--surface2);color:var(--ink)}
+select{width:100%;font-family:var(--f-body)}
+input[type=number]{width:96px;text-align:right}
+input[aria-invalid=true]{border-color:var(--bad)}
+.field{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.field label{font-size:14px;font-weight:500}
+.field small{display:block;color:var(--muted);font-size:12px;font-weight:400}
+.err{color:var(--bad);font-size:13px;margin:0}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.derived{font-size:13px;color:var(--muted);border-top:1px dashed var(--line);padding-top:12px;display:flex;flex-direction:column;gap:3px}
+.derived b{color:var(--ink);font-family:var(--f-mono);font-weight:600}
+.stage{display:flex;flex-direction:column;gap:12px;padding:14px}
+.toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.seg button{background:transparent;border:0;border-right:1px solid var(--line);color:var(--ink);padding:7px 12px;font-weight:600;font-family:var(--f-mono)}
+.seg button:last-child{border-right:0}
+.seg button[aria-pressed=true]{background:var(--accent);color:var(--btn-ink)}
+.btn{background:var(--accent);color:var(--btn-ink);border:0;border-radius:8px;padding:8px 14px;font-weight:600}
+.btn.ghost{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.btn.small{padding:6px 11px;font-size:13px}
+.speed{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.speed select{width:auto;font-family:var(--f-mono);font-size:13px;padding:5px 6px}
+canvas{width:100%;display:block;border-radius:8px;background:var(--surface2)}
+.counters{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px}
+@media (max-width:700px){.counters{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.counter{background:var(--surface2);border-radius:8px;padding:8px 10px;min-width:0}
+.counter span{display:block;font-size:11.5px;color:var(--muted);line-height:1.3}
+.counter b{font-family:var(--f-mono);font-size:17px;font-weight:600;font-variant-numeric:tabular-nums}
+.counter.w b{color:var(--wait)} .counter.g b{color:var(--ok)} .counter.r b{color:var(--bad)}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+h2{font-family:var(--f-display);font-weight:500;font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 12px;max-width:70ch}
+.headrow{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:8px 8px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+thead th{font-size:12px;color:var(--muted);font-weight:600;letter-spacing:.02em;vertical-align:bottom}
+td{font-family:var(--f-mono)}
+#res tbody tr{cursor:pointer}
+#res tbody tr:hover{background:var(--surface2)}
+#res tbody tr.cur{background:var(--accent-soft)}
+td.over{color:var(--bad)}
+.chartbox{overflow-x:auto}
+svg text{font-family:var(--f-body)}
+.chart-legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--muted);margin-bottom:6px}
+.chart-legend span{display:inline-flex;align-items:center;gap:6px}
+.sw{display:inline-block;width:18px;height:0;border-top:2px solid}
+.sw.dash{border-top-style:dashed}
+.sw.bar{height:10px;border:0;width:12px}
+pre{margin:0;background:var(--code-bg);border:1px solid var(--line);border-radius:8px;padding:14px;overflow-x:auto;font-family:var(--f-mono);font-size:13px;line-height:1.6;color:var(--ink)}
+.c-com{color:var(--muted)} .c-kw{color:var(--accent);font-weight:600} .c-num{color:var(--wait)} .c-str{color:var(--ok)}
+.note{font-size:13.5px;color:var(--muted);margin:10px 0 0;max-width:72ch}
+.toast{font-size:13px;color:var(--ok);min-height:1.2em}
+ol.steps{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:8px;max-width:78ch}
+footer{color:var(--muted);font-size:12.5px;text-align:center}
+@media (prefers-reduced-motion: reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <header>
+    <div>
+      <p class="eyebrow">МИПиС · лабораторная работа 3</p>
+      <h1>Моделирование системы контроля</h1>
+      <p class="lead">Объекты поступают случайным потоком, ждут свободный пост, проходят контроль и получают результат. Один и тот же поток прогоняется через 1, 2, 3 и 4 поста; при том же seed числа совпадают с программой на Python.</p>
+    </div>
+    <div class="board"><span class="tag" id="vtag">Базовый</span><span class="pill ok" id="status">—</span></div>
+  </header>
+
+  <div class="main">
+    <aside class="panel controls" aria-label="Исходные данные">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <label class="h3" for="variant">Вариант (таблица 4)</label>
+        <select id="variant"></select>
+      </div>
+      <div class="field"><label for="N">Объектов N<small>сколько объектов проходит контроль</small></label><input type="number" id="N" min="1" max="3000" step="1"></div>
+      <div class="field"><label for="ma">Средний интервал<small>mean_arrival, мин</small></label><input type="number" id="ma" min="0.1" step="0.1"></div>
+      <div class="field"><label for="mc">Время контроля<small>mean_control, мин</small></label><input type="number" id="mc" min="0.1" step="0.1"></div>
+      <div class="field"><label for="pd">p_defect<small>вероятность несоответствия</small></label><input type="number" id="pd" min="0" max="1" step="0.01"></div>
+      <div class="field"><label for="seed">seed<small>одинаковый seed — тот же поток</small></label><input type="number" id="seed" min="0" step="1"></div>
+      <p class="err" id="err" role="alert" hidden></p>
+      <div class="derived" id="derived"></div>
+    </aside>
+
+    <section class="panel stage" aria-label="Линия контроля">
+      <div class="toolbar">
+        <span class="h3">Постов</span>
+        <div class="seg" id="posts" role="group" aria-label="Количество постов">
+          <button data-n="1" aria-pressed="false">1</button><button data-n="2" aria-pressed="true">2</button><button data-n="3" aria-pressed="false">3</button><button data-n="4" aria-pressed="false">4</button>
+        </div>
+        <button class="btn" id="play">Пауза</button>
+        <button class="btn ghost" id="restart">Сначала</button>
+        <button class="btn ghost" id="toend">В конец</button>
+        <label class="speed" for="speed">Скорость
+          <select id="speed">
+            <option value="10">10 мин/с</option><option value="30">30 мин/с</option><option value="60" selected>60 мин/с</option><option value="120">2 ч/с</option><option value="300">5 ч/с</option>
+          </select>
+        </label>
+      </div>
+      <canvas id="cv" height="280" aria-label="Анимация: очередь объектов, посты контроля и результаты"></canvas>
+      <div class="counters">
+        <div class="counter"><span>Модельное время</span><b id="kT">0</b></div>
+        <div class="counter"><span>Пришло</span><b id="kA">0</b></div>
+        <div class="counter w"><span>В очереди</span><b id="kQ">0</b></div>
+        <div class="counter"><span>Проверено</span><b id="kD">0</b></div>
+        <div class="counter g"><span>Соответствуют</span><b id="kG">0</b></div>
+        <div class="counter r"><span>Несоответствия</span><b id="kB">0</b></div>
+      </div>
+      <div class="legend"><span><i style="background:var(--wait)"></i>ожидает в очереди</span><span><i style="background:var(--accent)"></i>на контроле</span><span><i style="background:var(--ok)"></i>прошёл контроль</span><span><i style="background:var(--bad)"></i>выявлено несоответствие</span></div>
+    </section>
+  </div>
+
+  <section class="panel">
+    <div class="headrow">
+      <div>
+        <h2>Результаты моделирования</h2>
+        <p class="sub" id="restitle">Форма таблицы 6 из лабораторной. Нажмите на строку, чтобы посмотреть этот вариант в анимации.</p>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        <button class="btn ghost small" id="copytab">Копировать таблицу</button>
+        <span class="toast" id="toast1" aria-live="polite"></span>
+      </div>
+    </div>
+    <div class="tbl"><table id="res">
+      <thead><tr><th>Постов</th><th>Среднее ожидание, мин</th><th>Максимальное ожидание, мин</th><th>Макс. очередь</th><th>Загрузка, %</th><th>Несоответствия</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <p class="note" id="tabnote"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Комплексная диаграмма показателей</h2>
+    <p class="sub">Как рисунок 1 лабораторной: ожидание и очередь по левой оси, загрузка постов по правой.</p>
+    <div class="chart-legend">
+      <span><i class="sw" style="border-color:var(--accent)"></i>Среднее ожидание, мин</span>
+      <span><i class="sw" style="border-color:var(--wait)"></i>Макс. ожидание, мин</span>
+      <span><i class="sw bar" style="background:var(--accent-soft);outline:1px solid var(--accent)"></i>Макс. очередь</span>
+      <span><i class="sw dash" style="border-color:var(--muted)"></i>Загрузка, %</span>
+    </div>
+    <div class="chartbox"><svg id="chart" viewBox="0 0 720 330" width="100%" role="img" aria-label="Зависимость ожидания, очереди и загрузки от количества постов"></svg></div>
+  </section>
+
+  <section class="panel">
+    <div class="headrow">
+      <div>
+        <h2>Программный код Python</h2>
+        <p class="sub">Код для раздела 7 отчёта. Исходные данные подставляются из текущего варианта; вывод программы совпадает с таблицей выше.</p>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px">
+        <button class="btn ghost small" id="copycode">Копировать код</button>
+        <span class="toast" id="toast2" aria-live="polite"></span>
+      </div>
+    </div>
+    <pre id="code" tabindex="0"></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Порядок работы со симулятором</h2>
+    <ol class="steps">
+      <li>Выберите свой номер варианта: N, интервал, время контроля, p_defect и seed заполнятся из таблицы 4.</li>
+      <li>Перенесите таблицу результатов в отчёт кнопкой «Копировать таблицу»: она вставляется в Word и Excel как таблица.</li>
+      <li>Запустите код Python у себя и сверьте вывод с таблицей. Если числа отличаются, проверьте seed и порядок генерации случайных величин.</li>
+      <li>Посмотрите анимацию для 1 и для 2 постов: при одном посте очередь растёт почти без остановки, это и есть перегрузка с загрузкой около 100 %.</li>
+      <li>Выберите рациональное число постов: ожидание приемлемое, а посты не простаивают большую часть времени.</li>
+    </ol>
+  </section>
+
+  <footer>Филиал НИТУ «МИСИС» в г. Алмалык · Моделирование информационных процессов и систем</footer>
+</div>
+
+<script>
+/* ---------- генератор как в Python: random.seed(int) + Mersenne Twister ---------- */
+function PyRandom(seed){
+  const mt=new Uint32Array(624); let mti=625;
+  function initGenrand(s){mt[0]=s>>>0;for(mti=1;mti<624;mti++){const p=mt[mti-1]^(mt[mti-1]>>>30);mt[mti]=(Math.imul(1812433253,p)+mti)>>>0;}}
+  function initByArray(key){initGenrand(19650218);let i=1,j=0;const kl=key.length;let k=624>kl?624:kl;
+    for(;k;k--){const p=mt[i-1]^(mt[i-1]>>>30);mt[i]=((mt[i]^Math.imul(p,1664525))+key[j]+j)>>>0;i++;j++;if(i>=624){mt[0]=mt[623];i=1;}if(j>=kl)j=0;}
+    for(k=623;k;k--){const p=mt[i-1]^(mt[i-1]>>>30);mt[i]=((mt[i]^Math.imul(p,1566083941))-i)>>>0;i++;if(i>=624){mt[0]=mt[623];i=1;}}
+    mt[0]=0x80000000;}
+  function genrand(){let y;if(mti>=624){let kk=0;for(;kk<227;kk++){y=(mt[kk]&0x80000000)|(mt[kk+1]&0x7fffffff);mt[kk]=mt[kk+397]^(y>>>1)^((y&1)?0x9908b0df:0);}
+      for(;kk<623;kk++){y=(mt[kk]&0x80000000)|(mt[kk+1]&0x7fffffff);mt[kk]=mt[kk-227]^(y>>>1)^((y&1)?0x9908b0df:0);}
+      y=(mt[623]&0x80000000)|(mt[0]&0x7fffffff);mt[623]=mt[396]^(y>>>1)^((y&1)?0x9908b0df:0);mti=0;}
+    y=mt[mti++];y^=y>>>11;y^=(y<<7)&0x9d2c5680;y^=(y<<15)&0xefc60000;y^=y>>>18;return y>>>0;}
+  let s=Math.abs(Math.trunc(seed)); const key=[]; if(s===0)key.push(0); while(s>0){key.push(s%4294967296); s=Math.floor(s/4294967296);} initByArray(key);
+  return {random(){const a=genrand()>>>5,b=genrand()>>>6;return (a*67108864+b)/9007199254740992;},
+          expovariate(l){return -Math.log(1-this.random())/l;}};
+}
+/* ---------- модель ---------- */
+function generate(N,ma,mc,p,seed){const r=PyRandom(seed);let t=0;const o=[];
+  for(let i=0;i<N;i++){t+=r.expovariate(1/ma);const c=r.expovariate(1/mc);const d=r.random()<p;o.push({arr:t,svc:c,def:d});}return o;}
+function simulate(o,n){const free=new Array(n).fill(0);const tr=[];let busy=0,end=0,mq=0,sw=0,mw=0;
+  for(let i=0;i<o.length;i++){const a=o[i].arr;let q=0;for(let j=0;j<i;j++)if(tr[j].start>a)q++;if(q>mq)mq=q;
+    let k=0;for(let j=1;j<n;j++)if(free[j]<free[k])k=j;const st=Math.max(a,free[k]);free[k]=st+o[i].svc;
+    tr.push({id:i+1,arr:a,start:st,end:st+o[i].svc,post:k,def:o[i].def});const w=st-a;sw+=w;if(w>mw)mw=w;busy+=o[i].svc;if(st+o[i].svc>end)end=st+o[i].svc;}
+  return {avg:sw/o.length,max:mw,mq,load:busy/(n*(end-o[0].arr))*100,def:o.filter(x=>x.def).length,end,trace:tr};}
+
+/* ---------- варианты из таблицы 4 ---------- */
+const BASE={N:220,ma:9,mc:14,pd:0.10,seed:203};
+const VARS=[[160,7,10,.06,201],[180,8,11,.07,202],[200,9,12,.08,203],[220,10,13,.09,204],[150,6,9,.05,205],[240,11,15,.10,206],[170,9,10,.08,207],[190,7,12,.07,208],[210,8,13,.09,209],[230,10,14,.10,210],[160,11,12,.06,211],[180,6,10,.08,212],[200,8,11,.07,213],[220,9,15,.10,214],[250,12,16,.09,215],[140,7,8,.05,216],[260,11,14,.08,217],[190,9,13,.09,218],[210,10,12,.07,219],[230,8,14,.10,220]];
+const $=id=>document.getElementById(id);
+const sel=$('variant');
+sel.innerHTML='<option value="base">Базовый пример (раздел 3)</option>'+VARS.map((v,i)=>`<option value="${i+1}">Вариант ${i+1}</option>`).join('')+'<option value="own">Свои данные</option>';
+
+let P={...BASE}, RES=[], curN=2, label='Базовый';
+const fx=(x,d=2)=>x.toFixed(d);
+const nf=x=>Number.isInteger(x)?String(x):String(x);
+
+function fill(v){$('N').value=v.N;$('ma').value=v.ma;$('mc').value=v.mc;$('pd').value=fx(v.pd,2);$('seed').value=v.seed;}
+function readForm(){
+  const N=+$('N').value, ma=+$('ma').value, mc=+$('mc').value, pd=+$('pd').value, seed=+$('seed').value;
+  const bad=[];
+  const mark=(id,ok)=>{$(id).setAttribute('aria-invalid',ok?'false':'true'); if(!ok)bad.push(id);};
+  mark('N',Number.isInteger(N)&&N>=1&&N<=3000); mark('ma',ma>0); mark('mc',mc>0); mark('pd',pd>=0&&pd<=1); mark('seed',Number.isInteger(seed)&&seed>=0);
+  const msg={N:'N — целое число от 1 до 3000',ma:'интервал больше 0',mc:'время контроля больше 0',pd:'p_defect от 0 до 1',seed:'seed — целое число не меньше 0'};
+  if(bad.length){$('err').textContent='Проверьте: '+bad.map(b=>msg[b]).join('; ')+'.';$('err').hidden=false;return null;}
+  $('err').hidden=true; return {N,ma,mc,pd,seed};
+}
+
+function recompute(){
+  const objs=generate(P.N,P.ma,P.mc,P.pd,P.seed);
+  RES=[1,2,3,4].map(n=>simulate(objs,n));
+  renderDerived(); renderTable(); renderChart(); renderCode(); restart();
+}
+function renderDerived(){
+  const lam=60/P.ma, mu=60/P.mc, a=P.mc/P.ma, nmin=Math.floor(a)+1;
+  $('derived').innerHTML=`<span>λ = 60 / ${nf(P.ma)} = <b>${fx(lam)}</b> объекта в час</span>`+
+    `<span>μ = 60 / ${nf(P.mc)} = <b>${fx(mu)}</b> объекта в час на пост</span>`+
+    `<span>Нагрузка a = ${nf(P.mc)} / ${nf(P.ma)} = <b>${fx(a)}</b></span>`+
+    `<span>ρ при 1–4 постах: <b>${[1,2,3,4].map(n=>fx(a/n)).join(' · ')}</b></span>`+
+    `<span>Без бесконечной очереди нужно постов: <b>не меньше ${nmin}</b></span>`+
+    `<span>Ожидаемое число несоответствий N·p = <b>${fx(P.N*P.pd,1)}</b></span>`;
+  $('vtag').textContent=label;
+}
+function renderTable(){
+  const a=P.mc/P.ma;
+  $('res').querySelector('tbody').innerHTML=RES.map((r,i)=>{const n=i+1, over=a/n>=1;
+    return `<tr data-n="${n}" class="${n===curN?'cur':''}" tabindex="0"><td>${n}</td><td class="${over?'over':''}">${fx(r.avg)}</td><td>${fx(r.max)}</td><td>${r.mq}</td><td>${fx(r.load)}</td><td>${r.def}</td></tr>`;}).join('');
+  document.querySelectorAll('#res tbody tr').forEach(tr=>{const go=()=>setN(+tr.dataset.n);tr.addEventListener('click',go);tr.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();go();}});});
+  $('restitle').textContent=`${label==='Свои'?'Свои данные':label==='Базовый'?'Базовый пример (сверка с таблицей 2)':label}: N = ${P.N}, интервал ${nf(P.ma)} мин, контроль ${nf(P.mc)} мин, p_defect = ${fx(P.pd)}, seed = ${P.seed}. Нажмите на строку, чтобы посмотреть её в анимации.`;
+  const def=RES[0].def;
+  $('tabnote').textContent=`Несоответствий одинаково при любом числе постов (${def} из ${P.N}): поток объектов и их результаты контроля общие для всех вариантов, меняется только число постов. Красным отмечено среднее ожидание там, где ρ ≥ 1 и очередь растёт без предела.`;
+}
+function niceStep(max,t){const raw=max/t,p=Math.pow(10,Math.floor(Math.log10(raw)));const m=raw/p;return (m<=1?1:m<=2?2:m<=2.5?2.5:m<=5?5:10)*p;}
+function renderChart(){
+  const W=720,H=330,L=64,R=58,T=20,B=48,pw=W-L-R,ph=H-T-B;
+  const ymaxRaw=Math.max(...RES.map(r=>Math.max(r.max,r.mq)))*1.08||1;
+  const step=niceStep(ymaxRaw,5), ymax=Math.ceil(ymaxRaw/step)*step;
+  const X=n=>L+pw*(n-0.5)/4, Y=v=>T+ph*(1-v/ymax);
+  const lmin=Math.max(0,Math.floor(Math.min(...RES.map(r=>r.load))/10)*10-10), lmax=100;
+  const Y2=v=>T+ph*(1-(v-lmin)/(lmax-lmin));
+  let s='';
+  for(let v=0;v<=ymax+1e-9;v+=step){s+=`<line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${L-8}" y="${Y(v)+4}" text-anchor="end" font-size="12" fill="var(--muted)">${Number(v.toFixed(2))}</text>`;}
+  for(let v=lmin;v<=lmax;v+=10){s+=`<text x="${W-R+8}" y="${Y2(v)+4}" font-size="12" fill="var(--muted)">${v}</text>`;}
+  RES.forEach((r,i)=>{const n=i+1,bw=pw/4*0.5;s+=`<rect x="${X(n)-bw/2}" y="${Y(r.mq)}" width="${bw}" height="${Y(0)-Y(r.mq)}" fill="var(--accent-soft)" stroke="var(--accent)" stroke-width="0.75"><title>Макс. очередь: ${r.mq}</title></rect>`;
+    s+=`<text x="${X(n)}" y="${H-B+20}" text-anchor="middle" font-size="13" fill="var(--ink)" font-weight="600">${n}</text>`;});
+  const line=(key,col,dash,yf,mark)=>{const pts=RES.map((r,i)=>[X(i+1),yf(r[key])]);
+    let p=`<polyline points="${pts.map(q=>q.join(',')).join(' ')}" fill="none" stroke="${col}" stroke-width="2"${dash?' stroke-dasharray="6 5"':''}/>`;
+    pts.forEach((q,i)=>{const v=RES[i][key];p+=mark==='sq'?`<rect x="${q[0]-5}" y="${q[1]-5}" width="10" height="10" fill="${col}"><title>${fx(v)} %</title></rect>`:`<circle cx="${q[0]}" cy="${q[1]}" r="4.5" fill="${col}"><title>${fx(v)} мин</title></circle>`;});return p;};
+  s+=line('load','var(--muted)',true,Y2,'sq');
+  s+=line('max','var(--wait)',false,Y,'c');
+  s+=line('avg','var(--accent)',false,Y,'c');
+  RES.forEach((r,i)=>{const y=Y(r.avg);s+=`<text x="${X(i+1)+8}" y="${y-8}" font-size="11.5" fill="var(--accent)" font-weight="600">${fx(r.avg)}</text>`;});
+  s+=`<line x1="${L}" x2="${W-R}" y1="${Y(0)}" y2="${Y(0)}" stroke="var(--muted)"/>`;
+  s+=`<text x="${L+pw/2}" y="${H-8}" text-anchor="middle" font-size="12.5" fill="var(--muted)">Количество постов контроля</text>`;
+  s+=`<text x="16" y="${T+ph/2}" transform="rotate(-90 16 ${T+ph/2})" text-anchor="middle" font-size="12.5" fill="var(--muted)">Ожидание, мин / очередь</text>`;
+  s+=`<text x="${W-14}" y="${T+ph/2}" transform="rotate(90 ${W-14} ${T+ph/2})" text-anchor="middle" font-size="12.5" fill="var(--muted)">Загрузка, %</text>`;
+  $('chart').innerHTML=s;
+}
+/* ---------- код Python ---------- */
+function pyCode(){
+return `import random
+import statistics
+
+# Исходные данные (${label==='Базовый'?'базовый пример':label==='Свои'?'свои данные':label.toLowerCase()})
+N = ${P.N}             # количество объектов
+mean_arrival = ${nf(P.ma)}    # средний интервал поступления, мин
+mean_control = ${nf(P.mc)}   # среднее время контроля, мин
+p_defect = ${fx(P.pd)}     # вероятность несоответствия
+seed = ${P.seed}          # начальное значение генератора
+
+
+def generate(N, mean_arrival, mean_control, p_defect, seed):
+    """Один и тот же поток объектов для всех вариантов числа постов."""
+    random.seed(seed)
+    t = 0.0
+    objects = []
+    for _ in range(N):
+        t += random.expovariate(1 / mean_arrival)        # момент прибытия
+        control_time = random.expovariate(1 / mean_control)
+        defect = random.random() < p_defect              # несоответствие
+        objects.append((t, control_time, defect))
+    return objects
+
+
+def simulate(objects, posts):
+    free_at = [0.0] * posts      # когда освободится каждый пост
+    starts, waits, queue_at_arrival = [], [], []
+    busy_time = 0.0
+    end_time = 0.0
+    for i, (arrival, control_time, defect) in enumerate(objects):
+        # сколько объектов ждёт в очереди в момент прибытия
+        queue = sum(1 for j in range(i) if starts[j] > arrival)
+        queue_at_arrival.append(queue)
+        k = min(range(posts), key=lambda j: free_at[j])  # пост, который освободится раньше
+        start = max(arrival, free_at[k])
+        free_at[k] = start + control_time
+        starts.append(start)
+        waits.append(start - arrival)
+        busy_time += control_time
+        end_time = max(end_time, start + control_time)
+    load = busy_time / (posts * (end_time - objects[0][0])) * 100
+    return {
+        "avg_wait": statistics.mean(waits),
+        "max_wait": max(waits),
+        "max_queue": max(queue_at_arrival),
+        "load": load,
+        "checked": len(objects),
+        "defects": sum(1 for o in objects if o[2]),
+    }
+
+
+objects = generate(N, mean_arrival, mean_control, p_defect, seed)
+print("Постов | Ср. ожидание | Макс. ожидание | Макс. очередь | Загрузка, % | Несоответствия")
+for posts in (1, 2, 3, 4):
+    r = simulate(objects, posts)
+    print(f"{posts:6d} | {r['avg_wait']:12.2f} | {r['max_wait']:14.2f} | "
+          f"{r['max_queue']:13d} | {r['load']:11.2f} | {r['defects']:14d}")
+`;}
+function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function highlight(src){
+  return src.split('\n').map(line=>{
+    const h=line.indexOf('#'); let code=line,com='';
+    if(h>=0 && !/["']/.test(line.slice(0,h).replace(/f?"[^"]*"/g,''))){code=line.slice(0,h);com=line.slice(h);}
+    let out=esc(code).replace(/(f?"[^"]*")/g,'\u0001$1\u0002');
+    out=out.split(/(\u0001[^\u0002]*\u0002)/).map(part=>{
+      if(part.startsWith('\u0001'))return `<span class="c-str">${part.slice(1,-1)}</span>`;
+      return part.replace(/\b(import|def|for|in|return|if|lambda|range|sum|min|max|len|print)\b/g,'<span class="c-kw">$1</span>').replace(/\b(\d+(\.\d+)?)\b/g,'<span class="c-num">$1</span>');
+    }).join('');
+    return out+(com?`<span class="c-com">${esc(com)}</span>`:'');
+  }).join('\n');
+}
+function renderCode(){$('code').innerHTML=highlight(pyCode());}
+
+async function copyText(text,toastId,fallbackEl){
+  const t=$(toastId);
+  try{await navigator.clipboard.writeText(text);t.textContent='Скопировано';}
+  catch(e){ if(fallbackEl){const r=document.createRange();r.selectNodeContents(fallbackEl);const s=getSelection();s.removeAllRanges();s.addRange(r);} t.textContent='Выделено — нажмите Ctrl+C';}
+  clearTimeout(t._h); t._h=setTimeout(()=>{t.textContent='';},2500);
+}
+$('copytab').addEventListener('click',()=>{
+  const head=['Постов','Среднее ожидание, мин','Максимальное ожидание, мин','Макс. очередь','Загрузка, %','Несоответствия'];
+  const rows=RES.map((r,i)=>[i+1,fx(r.avg),fx(r.max),r.mq,fx(r.load),r.def]);
+  copyText([head,...rows].map(r=>r.join('\t')).join('\n'),'toast1',$('res'));
+});
+$('copycode').addEventListener('click',()=>copyText(pyCode(),'toast2',$('code')));
+
+/* ---------- анимация ---------- */
+const cv=$('cv'), ctx=cv.getContext('2d'); const C={};
+function readColors(){const cs=getComputedStyle(document.documentElement);['ink','muted','line','surface','surface2','accent','accent-soft','wait','ok','bad','ok-soft','bad-soft'].forEach(k=>C[k]=cs.getPropertyValue('--'+k).trim());}
+let W=800,Hc=280;
+function fit(){const dpr=window.devicePixelRatio||1;W=cv.clientWidth||800;Hc=W<560?320:280;cv.style.height=Hc+'px';cv.width=Math.round(W*dpr);cv.height=Math.round(Hc*dpr);ctx.setTransform(dpr,0,0,dpr,0,0);}
+let T=0,playing=true,last=null,speed=60;
+const reduce=matchMedia('(prefers-reduced-motion: reduce)').matches;
+function restart(){T=0;last=null;playing=!reduce;$('play').textContent=playing?'Пауза':'Пуск';if(reduce)T=0;draw();}
+function setN(n){curN=n;document.querySelectorAll('#posts button').forEach(b=>b.setAttribute('aria-pressed',String(+b.dataset.n===n)));
+  document.querySelectorAll('#res tbody tr').forEach(tr=>tr.classList.toggle('cur',+tr.dataset.n===n));restart();}
+document.querySelectorAll('#posts button').forEach(b=>b.addEventListener('click',()=>setN(+b.dataset.n)));
+$('play').addEventListener('click',()=>{const r=RES[curN-1];if(T>=r.end){T=0;}playing=!playing;last=null;$('play').textContent=playing?'Пауза':'Пуск';});
+$('restart').addEventListener('click',restart);
+$('toend').addEventListener('click',()=>{T=RES[curN-1].end;playing=false;$('play').textContent='Пуск';draw();});
+$('speed').addEventListener('change',e=>{speed=+e.target.value;});
+
+function rr(x,y,w,h,r){ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();}
+function hm(t){const h=Math.floor(t/60),m=Math.floor(t%60);return `${h} ч ${String(m).padStart(2,'0')} мин`;}
+function draw(){
+  const r=RES[curN-1]; if(!r)return; const tr=r.trace, n=curN;
+  ctx.clearRect(0,0,W,Hc);
+  const narrow=W<560;
+  const binW=narrow?78:110, postW=narrow?96:150, gap=narrow?12:24;
+  const binX=W-binW-12, postX=binX-gap-postW, qRight=postX-gap-6, qLeft=14;
+  const top=34, areaH=Hc-top-14;
+  ctx.font='600 11px "Golos Text",system-ui,sans-serif';ctx.fillStyle=C.muted;ctx.textBaseline='alphabetic';
+  let waiting=[],inSvc=new Array(n).fill(null),arrived=0,done=0,good=0,bad=0;
+  for(const o of tr){ if(o.arr<=T)arrived++; if(o.arr<=T&&o.start>T)waiting.push(o); else if(o.start<=T&&o.end>T)inSvc[o.post]=o; if(o.end<=T){done++; if(o.def)bad++; else good++;} }
+  ctx.fillText('ОЧЕРЕДЬ · '+waiting.length,qLeft,20); ctx.fillText('ПОСТЫ КОНТРОЛЯ',postX,20); ctx.fillText('РЕЗУЛЬТАТ',binX,20);
+  /* очередь */
+  const cy=top+areaH/2, rad=7, pitch=18; const cap=Math.max(1,Math.floor((qRight-qLeft-30)/pitch));
+  ctx.strokeStyle=C.line;ctx.setLineDash([4,5]);ctx.beginPath();ctx.moveTo(qLeft,cy);ctx.lineTo(qRight,cy);ctx.stroke();ctx.setLineDash([]);
+  const shown=waiting.slice(0,cap);
+  shown.forEach((o,i)=>{const x=qRight-10-i*pitch;ctx.beginPath();ctx.arc(x,cy,rad,0,Math.PI*2);ctx.fillStyle=C.wait;ctx.fill();});
+  if(waiting.length>cap){ctx.fillStyle=C.wait;ctx.font='600 12px "JetBrains Mono",monospace';ctx.textAlign='left';ctx.fillText('+'+(waiting.length-cap),qLeft,cy-12);}
+  /* разветвление к постам */
+  const boxH=Math.min(52,(areaH-(n-1)*10)/n), totalH=n*boxH+(n-1)*10, by0=top+(areaH-totalH)/2;
+  ctx.strokeStyle=C.line;ctx.lineWidth=1;
+  for(let k=0;k<n;k++){const y=by0+k*(boxH+10)+boxH/2;ctx.beginPath();ctx.moveTo(qRight,cy);ctx.lineTo(postX,y);ctx.stroke();ctx.beginPath();ctx.moveTo(postX+postW,y);ctx.lineTo(binX,top+areaH/2);ctx.stroke();}
+  /* посты */
+  for(let k=0;k<n;k++){const y=by0+k*(boxH+10), o=inSvc[k];
+    rr(postX,y,postW,boxH,8);ctx.fillStyle=o?C['accent-soft']:C.surface;ctx.fill();ctx.strokeStyle=o?C.accent:C.line;ctx.lineWidth=1.25;ctx.stroke();
+    ctx.textBaseline='middle';
+    if(o){const pr=(T-o.start)/(o.end-o.start);ctx.beginPath();ctx.arc(postX+18,y+boxH/2,rad,0,Math.PI*2);ctx.fillStyle=C.accent;ctx.fill();
+      ctx.fillStyle=C.ink;ctx.font='600 12px "JetBrains Mono",monospace';ctx.textAlign='left';ctx.fillText('№'+o.id,postX+32,y+boxH/2-(narrow?0:6));
+      if(!narrow){ctx.fillStyle=C.line;ctx.fillRect(postX+32,y+boxH/2+6,postW-46,4);ctx.fillStyle=C.accent;ctx.fillRect(postX+32,y+boxH/2+6,(postW-46)*pr,4);}}
+    else{ctx.fillStyle=C.muted;ctx.font='12px "Golos Text",system-ui,sans-serif';ctx.textAlign='left';ctx.fillText('свободен',postX+14,y+boxH/2);}
+    ctx.fillStyle=C.muted;ctx.font='11px "JetBrains Mono",monospace';ctx.textAlign='right';ctx.fillText(String(k+1),postX+postW-8,y+12);ctx.textAlign='left';ctx.textBaseline='alphabetic';}
+  /* результат */
+  const bh=(areaH-12)/2;
+  [[good,'соответствует',C.ok,C['ok-soft']],[bad,'несоответствие',C.bad,C['bad-soft']]].forEach(([v,t,c,soft],i)=>{const y=top+i*(bh+12);
+    rr(binX,y,binW,bh,8);ctx.fillStyle=soft;ctx.fill();ctx.strokeStyle=c;ctx.lineWidth=1;ctx.stroke();
+    ctx.fillStyle=c;ctx.font='600 '+(narrow?18:22)+'px "JetBrains Mono",monospace';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(String(v),binX+binW/2,y+bh/2-8);
+    ctx.font='11.5px "Golos Text",system-ui,sans-serif';ctx.fillText(t,binX+binW/2,y+bh/2+14);ctx.textAlign='left';ctx.textBaseline='alphabetic';});
+  /* недавно завершённые летят в результат */
+  for(const o of tr){const age=T-o.end; const fly=speed*0.5; if(age>=0&&age<fly){const p=age/fly;const k=o.post;const sy=by0+k*(boxH+10)+boxH/2;
+      const ty=o.def?top+bh+12+bh/2:top+bh/2; const x=postX+postW+(binX-postX-postW+12)*p, y=sy+(ty-sy)*p;
+      ctx.globalAlpha=1-p*0.6;ctx.beginPath();ctx.arc(x,y,rad-1,0,Math.PI*2);ctx.fillStyle=o.def?C.bad:C.ok;ctx.fill();ctx.globalAlpha=1;}}
+  /* счётчики */
+  $('kT').textContent=hm(T); $('kA').textContent=arrived; $('kQ').textContent=waiting.length; $('kD').textContent=done; $('kG').textContent=good; $('kB').textContent=bad;
+  const st=$('status'); const a=P.mc/P.ma/n;
+  if(a>=1){st.className='pill bad';st.textContent=`${n} пост: перегрузка, ρ = ${fx(a)}`;}
+  else if(waiting.length>=5){st.className='pill warn';st.textContent=`${n} ${n===1?'пост':'поста'}: очередь ${waiting.length}`;}
+  else{st.className='pill ok';st.textContent=`${n} ${n===1?'пост':'поста'}: ρ = ${fx(a)}`;}
+}
+function loop(ts){
+  if(playing){ if(last!==null){T+=(ts-last)/1000*speed;} last=ts; const end=RES[curN-1]?.end??0;
+    if(T>=end){T=end;playing=false;$('play').textContent='Пуск';} draw(); } else last=null;
+  requestAnimationFrame(loop);
+}
+
+/* ---------- ввод ---------- */
+function applyVariant(){
+  const v=sel.value;
+  if(v==='base'){P={...BASE};label='Базовый';}
+  else if(v==='own'){label='Свои';return;}
+  else{const a=VARS[+v-1];P={N:a[0],ma:a[1],mc:a[2],pd:a[3],seed:a[4]};label='Вариант '+v;}
+  fill(P); recompute();
+}
+sel.addEventListener('change',applyVariant);
+['N','ma','mc','pd','seed'].forEach(id=>$(id).addEventListener('input',()=>{
+  const f=readForm(); if(!f)return;
+  const match=sel.value!=='own'&&sel.value!=='base'?VARS[+sel.value-1]:null;
+  const same=(a)=>a&&a[0]===f.N&&a[1]===f.ma&&a[2]===f.mc&&Math.abs(a[3]-f.pd)<1e-9&&a[4]===f.seed;
+  if(!(same(match)||(sel.value==='base'&&f.N===BASE.N&&f.ma===BASE.ma&&f.mc===BASE.mc&&Math.abs(f.pd-BASE.pd)<1e-9&&f.seed===BASE.seed))){sel.value='own';label='Свои';}
+  P=f; recompute();
+}));
+
+new MutationObserver(()=>{readColors();renderChart();draw();}).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',()=>{readColors();draw();});
+window.addEventListener('resize',()=>{fit();draw();});
+readColors(); fit(); fill(P); recompute(); requestAnimationFrame(loop);
+if(document.fonts)document.fonts.ready.then(()=>draw());
+</script>
+</body>
+</html>
